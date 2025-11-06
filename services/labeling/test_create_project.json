@@ -1,0 +1,7 @@
+{
+  "name": "Insect Dataset",
+  "description": "Côn trùng thu thập từ đồng ruộng",
+  "annotationType": "object_detection",
+  "classNames": ["insect", "fly", "bee"]
+}
+

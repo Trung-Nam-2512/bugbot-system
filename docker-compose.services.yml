@@ -1,0 +1,93 @@
+# ============================================
+# APPLICATION SERVICES ONLY
+# Chạy riêng: docker-compose -f docker-compose.services.yml up -d
+# Yêu cầu: Infrastructure đã chạy (redpanda, minio, clickhouse, mongodb)
+# ============================================
+
+services:
+  # Backend API Service (Node.js)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bugbot-backend
+    ports:
+      - "1435:1435"
+    environment:
+      - NODE_ENV=production
+      - PORT=1435
+      - LOG_LEVEL=info
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_CLIENT_ID=iot-backend
+      - KAFKA_TOPIC_RAW=events.raw
+      - KAFKA_TOPIC_ENRICHED=events.enriched
+      - STREAM_PROCESSOR_ENABLED=true
+      - KAFKA_CONSUMER_GROUP=iot-backend-processor
+      - ENRICHED_EVENTS_PROCESSOR_ENABLED=true
+      - KAFKA_ENRICHED_CONSUMER_GROUP=iot-backend-enriched-processor
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_BUCKET=iot-raw
+      - CLICKHOUSE_HOST=http://clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=clickhouse123
+      - CLICKHOUSE_DATABASE=iot
+      - MONGO_URI=mongodb://root:mongodb123@mongodb:27017
+      - MONGO_DATABASE=iot
+      - MQTT_ENABLED=false
+    volumes:
+      - ./uploads:/app/uploads
+      - ./.env:/app/.env:ro
+    networks:
+      - iot_network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:1435/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # AI Inference Service (Python)
+  ai-inference:
+    build:
+      context: ./services/ai-inference
+      dockerfile: Dockerfile
+    container_name: bugbot-ai-inference
+    ports:
+      - "8000:8000"
+    environment:
+      - SERVICE_PORT=8000
+      - LOG_LEVEL=INFO
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_TOPIC_RAW=events.raw
+      - KAFKA_TOPIC_ENRICHED=events.enriched
+      - KAFKA_CONSUMER_GROUP=ai-inference-service
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_USE_SSL=false
+      - MINIO_BUCKET_RAW=iot-raw
+      - MINIO_BUCKET_ANNOTATED=iot-annotated
+      - YOLO_MODEL_PATH=models/yolov8n.pt
+      - YOLO_CONFIDENCE_THRESHOLD=0.25
+      - YOLO_DEVICE=cpu
+    volumes:
+      - ./services/ai-inference/models:/app/models
+    networks:
+      - iot_network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health/liveness', timeout=5)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  iot_network:
+    external: true # Dùng network từ infrastructure

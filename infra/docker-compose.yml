@@ -1,0 +1,178 @@
+services:
+  # Redpanda - Kafka compatible streaming platform
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.8
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "19092:19092"  # Kafka API (external)
+      - "18081:18081"  # Schema Registry (external)
+      - "18082:18082"  # HTTP Proxy (external)
+      - "9644:9644"    # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - iot_network
+
+  # Redpanda Console - Web UI for Kafka
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.4.5
+    container_name: redpanda-console
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+          schemaRegistry:
+            enabled: true
+            urls: ["http://redpanda:8081"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+    ports:
+      - "8080:8080"
+    networks:
+      - iot_network
+    depends_on:
+      - redpanda
+
+  # MinIO - S3 compatible object storage
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DOMAIN: minio
+    ports:
+      - "9002:9000"   # S3 API (mapped to 9002 to avoid conflicts)
+      - "9001:9001"   # Console UI
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iot_network
+
+  # MinIO Client - Create buckets on startup
+  minio-client:
+    image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+    container_name: minio-client
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin123;
+      mc mb myminio/iot-images --ignore-existing;
+      mc mb myminio/iot-raw --ignore-existing;
+      mc policy set download myminio/iot-images;
+      echo 'MinIO buckets created successfully';
+      exit 0;
+      "
+    networks:
+      - iot_network
+
+  # ClickHouse - OLAP database for analytics
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.12-alpine
+    container_name: clickhouse
+    environment:
+      CLICKHOUSE_DB: iot
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_PASSWORD: clickhouse123
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native client (conflicts with minio, using different port)
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iot_network
+
+  # MongoDB - OLTP database for users, devices, jobs, logs
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: mongodb123
+      MONGO_INITDB_DATABASE: iot
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongodb/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iot_network
+
+  # Optional: Spark for stream processing (skeleton)
+  spark:
+    image: bitnami/spark:3.5
+    container_name: spark
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8081:8080"   # Spark Master Web UI (changed from 8080 to avoid conflict)
+      - "7077:7077"   # Spark Master
+    volumes:
+      - ./spark/jobs:/opt/spark-jobs
+    networks:
+      - iot_network
+    profiles:
+      - spark  # Only start with: docker-compose --profile spark up
+
+networks:
+  iot_network:
+    driver: bridge
+
+volumes:
+  redpanda_data:
+  minio_data:
+  clickhouse_data:
+  mongodb_data:
+

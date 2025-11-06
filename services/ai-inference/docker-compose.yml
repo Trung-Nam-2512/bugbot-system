@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  ai-inference:
+    build: .
+    container_name: ai-inference
+    ports:
+      - "8000:8000"
+    environment:
+      - SERVICE_PORT=8000
+      - LOG_LEVEL=INFO
+      - KAFKA_BROKERS=host.docker.internal:19092
+      - KAFKA_TOPIC_RAW=events.raw
+      - KAFKA_TOPIC_ENRICHED=events.enriched
+      - KAFKA_CONSUMER_GROUP=ai-inference-service
+      - MINIO_ENDPOINT=host.docker.internal
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_USE_SSL=false
+      - MINIO_BUCKET_RAW=iot-raw
+      - MINIO_BUCKET_ANNOTATED=iot-annotated
+      - YOLO_MODEL_PATH=models/yolov8n.pt
+      - YOLO_CONFIDENCE_THRESHOLD=0.25
+      - YOLO_DEVICE=cpu
+    volumes:
+      - ./models:/app/models
+    networks:
+      - default
+    depends_on:
+      - kafka
+      - minio
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+
+
+
