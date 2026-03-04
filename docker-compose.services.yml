@@ -37,7 +37,11 @@ services:
       - CLICKHOUSE_DATABASE=iot
       - MONGO_URI=mongodb://root:mongodb123@mongodb:27017
       - MONGO_DATABASE=iot
-      - MQTT_ENABLED=false
+      - MQTT_ENABLED=true
+      - MQTT_BROKER=${MQTT_BROKER:-mqtt://localhost:1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_PREFIX=${MQTT_PREFIX:-BINHDUONG/ESP32CAM}
     volumes:
       - ./uploads:/app/uploads
       - ./.env:/app/.env:ro

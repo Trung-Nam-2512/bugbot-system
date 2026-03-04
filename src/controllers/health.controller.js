@@ -4,6 +4,7 @@ const { isClickHouseHealthy } = require('../libs/clickhouse');
 const { isMongoDBHealthy } = require('../libs/mongodb');
 const { logger } = require('../libs/logger');
 const { isStreamProcessorHealthy, getStreamProcessorStats } = require('../services/stream-processor.service');
+const mqtt = require('../services/mqtt.service');
 
 /**
  * Health check endpoint
@@ -21,14 +22,18 @@ async function healthCheck(req, res) {
             isMongoDBHealthy(),
         ]);
 
+        const mqttEnabled = process.env.MQTT_ENABLED === 'true';
+        const mqttConnected = mqttEnabled ? mqtt.isConnected() : true;
+
         const services = {
             kafka: { healthy: kafka, status: kafka ? 'connected' : 'disconnected' },
             minio: { healthy: minio, status: minio ? 'connected' : 'disconnected' },
             clickhouse: { healthy: clickhouse, status: clickhouse ? 'connected' : 'disconnected' },
             mongodb: { healthy: mongodb, status: mongodb ? 'connected' : 'disconnected' },
+            mqtt: { healthy: mqttConnected, status: mqttEnabled ? (mqttConnected ? 'connected' : 'disconnected') : 'disabled' },
         };
 
-        const allHealthy = kafka && minio && clickhouse && mongodb;
+        const allHealthy = kafka && minio && clickhouse && mongodb && mqttConnected;
         const responseTime = Date.now() - startTime;
 
         const response = {

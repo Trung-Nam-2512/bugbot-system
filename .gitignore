@@ -2,5 +2,8 @@
 node_modules
 uploads
 newMDV2/
-frontend/
 document_MD/
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/build/

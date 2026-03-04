@@ -14,8 +14,10 @@ const { initMinIO } = require("./libs/minio");
 const { initClickHouse, closeClickHouse } = require("./libs/clickhouse");
 const { initMongoDB, closeMongoDB } = require("./libs/mongodb");
 
-// Import legacy services
+// Import MQTT + device management services
 const mqtt = require("./services/mqtt.service");
+const deviceRegistry = require("./services/device-registry.service");
+const eventProcessor = require("./services/mqtt-event-processor.service");
 const { getServerIP, getAllIPs } = require("./utils/network");
 
 // Import stream processor
@@ -66,11 +68,13 @@ async function gracefulShutdown(signal) {
     logger.info({ signal }, 'Received shutdown signal, closing gracefully...');
     
     try {
-        // Stop processors trước
+        // Stop MQTT + processors
+        eventProcessor.stop();
+        mqtt.stop();
         await stopStreamProcessor();
         await stopEnrichedEventsProcessor();
         
-        // Sau đó close connections
+        // Close connections
         await Promise.all([
             disconnectKafka(),
             closeClickHouse(),
@@ -100,10 +104,14 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
         // Initialize infrastructure
         await initInfrastructure();
         
-        // Start legacy MQTT service if needed
+        // Initialize device registry (load from MongoDB)
+        await deviceRegistry.init();
+
+        // Start MQTT service + event processor
         if (process.env.MQTT_ENABLED === 'true') {
-            await mqtt.start();
-            logger.info('MQTT service started');
+            mqtt.start();
+            eventProcessor.start(mqtt, deviceRegistry);
+            logger.info('MQTT service + event processor started');
         }
 
         // Start stream processor if enabled

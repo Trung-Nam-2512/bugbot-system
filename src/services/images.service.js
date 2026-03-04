@@ -113,12 +113,18 @@ async function getImages(filters = {}) {
         const rows = await result.json();
 
         // Post-process results
+        const { transformInternalUrlToPublic } = require('../libs/minio');
+
         let images = rows.map(row => {
+            // Transform internal URL to public URL
+            const publicUrl = transformInternalUrlToPublic(row.image_url);
+            const publicAnnotatedUrl = row.annotated_image_url ? transformInternalUrlToPublic(row.annotated_image_url) : null;
+
             const image = {
                 id: row.shot_id || `${row.device_id}_${new Date(row.timestamp).getTime()}`,
                 deviceId: row.device_id,
                 filename: path.basename(row.image_url || ''),
-                url: row.image_url,
+                url: publicUrl || row.image_url, // Use transformed URL or fallback to original
                 size: parseInt(row.image_size, 10),
                 timestamp: row.timestamp,
                 md5: row.image_md5,
@@ -129,7 +135,7 @@ async function getImages(filters = {}) {
             if (row.detection_count > 0) {
                 image.hasDetections = true;
                 image.detectionCount = parseInt(row.detection_count, 10);
-                image.annotatedImageUrl = row.annotated_image_url;
+                image.annotatedImageUrl = publicAnnotatedUrl || row.annotated_image_url;
                 image.inferenceModel = row.inference_model;
                 image.processingTimeMs = parseInt(row.processing_time_ms, 10);
                 image.processedAt = row.processed_at;
@@ -258,11 +264,17 @@ async function getImageById(imageId) {
         }
 
         const row = rows[0];
+
+        // Transform internal URL to public URL
+        const { transformInternalUrlToPublic } = require('../libs/minio');
+        const publicUrl = transformInternalUrlToPublic(row.image_url);
+        const publicAnnotatedUrl = row.annotated_image_url ? transformInternalUrlToPublic(row.annotated_image_url) : null;
+
         const image = {
             id: row.shot_id,
             deviceId: row.device_id,
             filename: path.basename(row.image_url || ''),
-            url: row.image_url,
+            url: publicUrl || row.image_url, // Use transformed URL or fallback to original
             size: parseInt(row.image_size, 10),
             timestamp: row.timestamp,
             md5: row.image_md5,
@@ -275,7 +287,7 @@ async function getImageById(imageId) {
         if (row.detection_count > 0) {
             image.hasDetections = true;
             image.detectionCount = parseInt(row.detection_count, 10);
-            image.annotatedImageUrl = row.annotated_image_url;
+            image.annotatedImageUrl = publicAnnotatedUrl || row.annotated_image_url;
             image.inferenceModel = row.inference_model;
             image.inferenceVersion = row.inference_version;
             image.processingTimeMs = parseInt(row.processing_time_ms, 10);
@@ -327,12 +339,12 @@ async function getImagesFromFilesystem(filters = {}) {
             if (!deviceDir.isDirectory()) continue;
 
             const currentDeviceId = deviceDir.name;
-            
+
             // Lọc bỏ các device test
             if (currentDeviceId.toLowerCase().includes('test')) {
                 continue;
             }
-            
+
             if (deviceId && currentDeviceId !== deviceId) continue;
 
             const devicePath = path.join(uploadDir, currentDeviceId);

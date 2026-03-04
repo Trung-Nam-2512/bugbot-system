@@ -1,0 +1,128 @@
+import axios from 'axios';
+import { API_CONFIG } from '../utils/constants';
+
+const api = axios.create({
+    baseURL: API_CONFIG.BASE_URL,
+    timeout: API_CONFIG.TIMEOUT,
+});
+
+// ── Error formatting ────────────────────────────────────────────
+
+const getErrorMessage = (error) => {
+    if (!error.response) {
+        if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            return { title: 'Het thoi gian cho', message: 'Yeu cau mat qua nhieu thoi gian. Vui long thu lai.', type: 'timeout' };
+        }
+        if (error.message === 'Network Error') {
+            return { title: 'Loi ket noi', message: 'Khong the ket noi den server.', type: 'network' };
+        }
+        return { title: 'Loi khong xac dinh', message: error.message || 'Da xay ra loi.', type: 'unknown' };
+    }
+
+    const { status, data } = error.response;
+    const serverMessage = data?.error || data?.message || 'Da xay ra loi';
+
+    const messages = {
+        400: { title: 'Yeu cau khong hop le', type: 'bad_request' },
+        401: { title: 'Khong co quyen truy cap', type: 'unauthorized' },
+        403: { title: 'Bi tu choi truy cap', type: 'forbidden' },
+        404: { title: 'Khong tim thay', type: 'not_found' },
+        500: { title: 'Loi server', type: 'server_error' },
+        502: { title: 'Server khong kha dung', type: 'server_unavailable' },
+        503: { title: 'Server khong kha dung', type: 'server_unavailable' },
+        504: { title: 'Server khong kha dung', type: 'server_unavailable' },
+    };
+
+    const info = messages[status] || { title: `Loi ${status}`, type: 'http_error' };
+    return { ...info, message: serverMessage };
+};
+
+// ── Interceptors ────────────────────────────────────────────────
+
+api.interceptors.request.use(
+    (config) => {
+        config.metadata = { startTime: new Date() };
+        if (process.env.NODE_ENV === 'development') {
+            const fullUrl = config.baseURL ? `${config.baseURL}${config.url}` : config.url;
+            console.log(`[API] ${config.method?.toUpperCase()} ${fullUrl}`);
+        }
+        return config;
+    },
+    (error) => Promise.reject(error)
+);
+
+api.interceptors.response.use(
+    (response) => {
+        if (response.config.metadata && process.env.NODE_ENV === 'development') {
+            const duration = new Date() - response.config.metadata.startTime;
+            console.log(`[API] ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`);
+        }
+        return response;
+    },
+    (error) => {
+        error.errorInfo = getErrorMessage(error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error('[API Error]', {
+                url: error.config?.url,
+                status: error.response?.status,
+                message: error.errorInfo.message,
+            });
+        }
+        return Promise.reject(error);
+    }
+);
+
+// ── API Endpoints ───────────────────────────────────────────────
+
+export const apiService = {
+    // MQTT connection status
+    getMqttStatus: () => api.get('/iot/mqtt/status'),
+
+    // Device management (new registry-based)
+    getDevices: () => api.get('/iot/mqtt/devices'),
+    getDeviceDetail: (deviceId) => api.get(`/iot/mqtt/devices/${deviceId}`),
+    getDeviceStatus: (deviceId) => api.get(`/iot/mqtt/devices/${deviceId}/status`),
+    deleteDevice: (deviceId) => api.delete(`/iot/mqtt/devices/${deviceId}`),
+
+    // Device commands
+    capturePhoto: (deviceId) => api.post(`/iot/mqtt/devices/${deviceId}/capture`),
+    requestStatus: (deviceId) => api.post(`/iot/mqtt/devices/${deviceId}/request-status`),
+    resetDevice: (deviceId) => api.post(`/iot/mqtt/devices/${deviceId}/reset`),
+    restartCamera: (deviceId) => api.post(`/iot/mqtt/devices/${deviceId}/restart-camera`),
+    setAutoConfig: (deviceId, enabled, seconds) =>
+        api.post(`/iot/mqtt/devices/${deviceId}/auto-config`, { enabled, seconds }),
+
+    // OTA
+    otaCheck: (deviceId) => api.post(`/iot/mqtt/devices/${deviceId}/ota/check`),
+    otaUpdate: (deviceId) => api.post(`/iot/mqtt/devices/${deviceId}/ota/update`),
+
+    // Broadcast
+    broadcastCapture: () => api.post('/iot/mqtt/broadcast/capture'),
+
+    // Events polling
+    getEvents: (params = {}) => api.get('/iot/mqtt/events', { params }),
+    getLatestEvents: (limit = 20) => api.get('/iot/mqtt/events/latest', { params: { limit } }),
+
+    // Image management
+    getImages: (params = {}) => {
+        const queryParams = new URLSearchParams(params);
+        return api.get(`/cam/images?${queryParams}`);
+    },
+    getImageById: (imageId) => api.get(`/cam/images/${imageId}`),
+    deleteImage: (imageId) => api.delete(`/cam/images/${imageId}`),
+    downloadImage: (imageId) => api.get(`/cam/images/${imageId}/download`, { responseType: 'blob' }),
+
+    // Statistics
+    getStats: () => api.get('/cam/stats'),
+    getDeviceStats: (deviceId) => api.get(`/cam/stats/${deviceId}`),
+
+    // Health check
+    getHealth: () => api.get('/health'),
+
+    // Upload (testing)
+    uploadImage: (formData) => api.post('/iot/cam/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+};
+
+export default api;

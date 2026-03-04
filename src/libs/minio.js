@@ -48,10 +48,10 @@ function generateObjectKey(deviceId, timestamp, shotId = 'na') {
     const yyyy = date.getUTCFullYear();
     const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
     const dd = String(date.getUTCDate()).padStart(2, '0');
-    
+
     const ts = Date.now();
     const shortShot = shotId ? shotId.slice(-6) : 'na';
-    
+
     return `raw/${yyyy}/${mm}/${dd}/${deviceId}/${ts}_${shortShot}.jpg`;
 }
 
@@ -72,7 +72,7 @@ async function uploadImage(imageBuffer, deviceId, timestamp, shotId = 'na', mime
     try {
         const objectKey = generateObjectKey(deviceId, timestamp, shotId);
         const md5 = crypto.createHash('md5').update(imageBuffer).digest('hex');
-        
+
         const metadata = {
             'Content-Type': mimeType,
             'X-Device-Id': deviceId,
@@ -107,14 +107,52 @@ async function uploadImage(imageBuffer, deviceId, timestamp, shotId = 'na', mime
 }
 
 /**
+ * Convert object key to base64 encoded prefix (for MinIO Console API)
+ * @param {string} objectKey
+ * @returns {string}
+ */
+function encodeObjectKeyToPrefix(objectKey) {
+    return Buffer.from(objectKey).toString('base64');
+}
+
+/**
+ * Get public URL for object using MinIO Console API format
+ * @param {string} objectKey
+ * @returns {string}
+ */
+function getPublicObjectUrl(objectKey) {
+    const publicDomain = process.env.MINIO_PUBLIC_DOMAIN || process.env.MINIO_PUBLIC_ENDPOINT;
+
+    if (publicDomain) {
+        // Use MinIO Console API format
+        const prefix = encodeObjectKeyToPrefix(objectKey);
+        const protocol = process.env.MINIO_USE_SSL === 'true' || publicDomain.startsWith('https://') ? 'https' : 'http';
+        const domain = publicDomain.replace(/^https?:\/\//, ''); // Remove protocol if present
+
+        return `${protocol}://${domain}/api/v1/buckets/${BUCKET_NAME}/objects/download?preview=true&prefix=${prefix}&version_id=null`;
+    }
+
+    // Fallback: use presigned URL or direct URL
+    return null;
+}
+
+/**
  * Get presigned URL for object (7 days expiry)
  * @param {string} objectKey
  * @returns {Promise<string>}
  */
 async function getObjectUrl(objectKey, expirySeconds = 7 * 24 * 60 * 60) {
+    // Try to use public domain first (MinIO Console API format)
+    const publicUrl = getPublicObjectUrl(objectKey);
+    if (publicUrl) {
+        return publicUrl;
+    }
+
+    // Fallback: use presigned URL
     try {
         const url = await minioClient.presignedGetObject(BUCKET_NAME, objectKey, expirySeconds);
-        return url;
+        // Transform internal URL to public URL if needed
+        return transformInternalUrlToPublic(url);
     } catch (error) {
         logger.error({ error: error.message, objectKey }, 'Failed to generate presigned URL');
         // Return a direct URL as fallback
@@ -123,6 +161,61 @@ async function getObjectUrl(objectKey, expirySeconds = 7 * 24 * 60 * 60) {
         const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
         return `${protocol}://${endpoint}:${port}/${BUCKET_NAME}/${objectKey}`;
     }
+}
+
+/**
+ * Transform internal MinIO URL to public URL
+ * @param {string} url - Internal URL (e.g., http://minio:9000/...)
+ * @returns {string}
+ */
+function transformInternalUrlToPublic(url) {
+    if (!url) return url;
+
+    const publicDomain = process.env.MINIO_PUBLIC_DOMAIN || process.env.MINIO_PUBLIC_ENDPOINT;
+
+    // If URL contains internal endpoint, transform it
+    if (url.includes('minio:9000') || url.includes('localhost:9000') || url.includes('127.0.0.1:9000')) {
+        if (publicDomain) {
+            try {
+                // Extract object key from URL
+                // Handle both direct URLs and presigned URLs
+                let urlToParse = url;
+
+                // If URL has query params, parse them separately
+                const urlParts = url.split('?');
+                urlToParse = urlParts[0]; // Use path part only
+
+                const urlObj = new URL(urlToParse);
+                const pathParts = urlObj.pathname.split('/').filter(p => p);
+                const bucketIndex = pathParts.indexOf(BUCKET_NAME);
+
+                if (bucketIndex >= 0 && bucketIndex < pathParts.length - 1) {
+                    const objectKey = pathParts.slice(bucketIndex + 1).join('/');
+                    // Object key should not contain query params (already removed above)
+                    const publicUrl = getPublicObjectUrl(objectKey);
+                    if (publicUrl) {
+                        return publicUrl;
+                    }
+                }
+            } catch (error) {
+                logger.warn({ error: error.message, url }, 'Failed to parse URL for transformation');
+            }
+        }
+
+        // Fallback: replace internal endpoint with public endpoint
+        const publicEndpoint = process.env.MINIO_PUBLIC_ENDPOINT || 'localhost';
+        const publicPort = process.env.MINIO_PORT || '1442';
+        const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
+
+        // Remove query params for fallback (presigned URLs won't work with different domain)
+        const urlWithoutQuery = url.split('?')[0];
+        return urlWithoutQuery
+            .replace(/https?:\/\/minio:9000/, `${protocol}://${publicEndpoint}:${publicPort}`)
+            .replace(/https?:\/\/localhost:9000/, `${protocol}://${publicEndpoint}:${publicPort}`)
+            .replace(/https?:\/\/127\.0\.0\.1:9000/, `${protocol}://${publicEndpoint}:${publicPort}`);
+    }
+
+    return url;
 }
 
 /**
@@ -145,7 +238,7 @@ async function deleteObject(objectKey) {
  */
 async function isMinIOHealthy() {
     if (!isConnected) return false;
-    
+
     try {
         await minioClient.bucketExists(BUCKET_NAME);
         return true;
@@ -158,6 +251,8 @@ module.exports = {
     initMinIO,
     uploadImage,
     getObjectUrl,
+    getPublicObjectUrl,
+    transformInternalUrlToPublic,
     deleteObject,
     isMinIOHealthy,
     BUCKET_NAME,

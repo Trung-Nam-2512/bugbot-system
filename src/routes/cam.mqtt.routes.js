@@ -1,31 +1,49 @@
 const express = require("express");
-const { body } = require("express-validator");
+const { body, query } = require("express-validator");
 const validate = require("../middlewares/validate");
 const ctrl = require("../controllers/cam.mqtt.controller");
 
 const router = express.Router();
 
-// router.use((req,_res,next)=>{ console.log("[MQTT ROUTER]", req.method, req.url); next(); });
+// ── MQTT connection status ──────────────────────────────────────
+router.get("/status", ctrl.getMqttStatus);
 
-// GET /api/iot/mqtt/devices - Get all devices (moved from stats)
+// ── Device listing ──────────────────────────────────────────────
 router.get("/devices", ctrl.getDevices);
+router.get("/devices/:id", ctrl.getDeviceDetail);
+router.get("/devices/:id/status", ctrl.getDeviceStatus);
+router.delete("/devices/:id", ctrl.deleteDevice);
 
-// POST /api/iot/mqtt/:id/capture - Capture photo
-router.post("/:id/capture", ctrl.capture);
+// ── Device commands ─────────────────────────────────────────────
+router.post("/devices/:id/capture", ctrl.capture);
+router.post("/devices/:id/request-status", ctrl.requestStatus);
+router.post("/devices/:id/reset", ctrl.resetDevice);
+router.post("/devices/:id/restart-camera", ctrl.restartCamera);
 
-// POST /api/iot/mqtt/:id/auto-config - Configure auto capture
 router.post(
-    "/:id/auto-config",
+    "/devices/:id/auto-config",
     body("enabled").isBoolean().withMessage("enabled must be boolean"),
     body("seconds").optional().isInt({ min: 3, max: 3600 }),
     validate,
     ctrl.autoConfig
 );
 
-// GET /api/iot/mqtt/:id/status - Get device status
-router.get("/:id/status", ctrl.status);
+// ── OTA ─────────────────────────────────────────────────────────
+router.post("/devices/:id/ota/check", ctrl.otaCheck);
+router.post("/devices/:id/ota/update", ctrl.otaUpdate);
 
-// DELETE /api/iot/mqtt/:id - Delete device
-router.delete("/:id", ctrl.deleteDevice);
+// ── Broadcast ───────────────────────────────────────────────────
+router.post("/broadcast/capture", ctrl.broadcastCapture);
+
+// ── Events polling ──────────────────────────────────────────────
+router.get(
+    "/events",
+    query("since").optional().isNumeric(),
+    query("deviceId").optional().isString(),
+    query("limit").optional().isInt({ min: 1, max: 200 }),
+    validate,
+    ctrl.getEvents
+);
+router.get("/events/latest", ctrl.getLatestEvents);
 
 module.exports = router;

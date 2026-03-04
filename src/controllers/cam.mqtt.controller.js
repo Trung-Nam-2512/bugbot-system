@@ -1,170 +1,212 @@
 const mqtt = require("../services/mqtt.service");
-const fs = require("fs/promises");
-const path = require("path");
-const cfg = require("../config");
+const deviceRegistry = require("../services/device-registry.service");
+const eventProcessor = require("../services/mqtt-event-processor.service");
 
-// Get all devices
+function requireMqtt(req, res) {
+    if (process.env.MQTT_ENABLED !== "true") {
+        res.status(503).json({ ok: false, error: "mqtt_disabled" });
+        return false;
+    }
+    if (!mqtt.isConnected()) {
+        res.status(503).json({ ok: false, error: "mqtt_not_connected" });
+        return false;
+    }
+    return true;
+}
+
+// ── Device listing ──────────────────────────────────────────────
+
 async function getDevices(req, res, next) {
     try {
-        const devices = await getAllDevices();
-        res.json({ ok: true, devices });
+        const devices = deviceRegistry.getAllDevices();
+        const counts = deviceRegistry.getDeviceCount();
+        res.json({ ok: true, devices, ...counts });
     } catch (e) {
         next(e);
     }
 }
 
-// Capture photo
+async function getDeviceDetail(req, res, next) {
+    try {
+        const device = deviceRegistry.getDevice(req.params.id);
+        if (!device) {
+            return res.status(404).json({ ok: false, error: "device_not_found" });
+        }
+        const events = eventProcessor.getEvents({ deviceId: req.params.id, limit: 30 });
+        res.json({ ok: true, device, events });
+    } catch (e) {
+        next(e);
+    }
+}
+
+async function getDeviceStatus(req, res, next) {
+    try {
+        const device = deviceRegistry.getDevice(req.params.id);
+        if (!device) {
+            return res.status(404).json({ ok: false, error: "device_not_found" });
+        }
+        res.json({
+            ok: true,
+            deviceId: device.deviceId,
+            online: device.online,
+            stale: device.stale,
+            lastSeenAt: device.lastSeenAt,
+            firmware: device.firmware,
+            ip: device.ip,
+        });
+    } catch (e) {
+        next(e);
+    }
+}
+
+// ── Commands ────────────────────────────────────────────────────
+
 async function capture(req, res, next) {
     try {
-        const { id } = req.params;
-        const sent = mqtt.capture(id);
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.capture(req.params.id);
         res.json({ ok: true, sent });
     } catch (e) {
         next(e);
     }
 }
 
-// Configure auto capture
+async function requestStatus(req, res, next) {
+    try {
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.requestStatus(req.params.id);
+        res.json({ ok: true, sent });
+    } catch (e) {
+        next(e);
+    }
+}
+
+async function resetDevice(req, res, next) {
+    try {
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.reset(req.params.id);
+        res.json({ ok: true, sent });
+    } catch (e) {
+        next(e);
+    }
+}
+
+async function restartCamera(req, res, next) {
+    try {
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.restartCamera(req.params.id);
+        res.json({ ok: true, sent });
+    } catch (e) {
+        next(e);
+    }
+}
+
+async function otaCheck(req, res, next) {
+    try {
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.otaCheck(req.params.id);
+        res.json({ ok: true, sent });
+    } catch (e) {
+        next(e);
+    }
+}
+
+async function otaUpdate(req, res, next) {
+    try {
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.otaUpdate(req.params.id);
+        res.json({ ok: true, sent });
+    } catch (e) {
+        next(e);
+    }
+}
+
 async function autoConfig(req, res, next) {
     try {
-        const { id } = req.params;
-        const { enabled, seconds } = req.body; // enabled: boolean, seconds: optional number
-        const sent = mqtt.setAutoConfig(id, enabled, seconds);
+        if (!requireMqtt(req, res)) return;
+        const { enabled, seconds } = req.body;
+        const sent = mqtt.setAutoConfig(req.params.id, enabled, seconds);
         res.json({ ok: true, sent });
     } catch (e) {
         next(e);
     }
 }
 
-// Get device status
-async function status(req, res, next) {
+async function broadcastCapture(req, res, next) {
     try {
-        const { id } = req.params;
-        const devices = await getAllDevices();
-        const device = devices.find(d => d.id === id);
-
-        if (!device) {
-            return res.status(404).json({ ok: false, error: "Device not found" });
-        }
-
-        res.json({ ok: true, deviceId: id, status: device.status, lastUpdate: device.lastUpdate });
+        if (!requireMqtt(req, res)) return;
+        const sent = mqtt.broadcastCapture();
+        res.json({ ok: true, sent });
     } catch (e) {
         next(e);
     }
 }
 
-// Helper function to get all devices
-async function getAllDevices() {
-    const devices = [];
-    const uploadDir = cfg.uploadDir;
+// ── Delete ──────────────────────────────────────────────────────
 
-    try {
-        const deviceDirs = await fs.readdir(uploadDir, { withFileTypes: true });
-
-        for (const deviceDir of deviceDirs) {
-            if (!deviceDir.isDirectory()) continue;
-
-            const deviceId = deviceDir.name;
-            
-            // Lọc bỏ các device test (cam-test, cam-test-fixed, hoặc bất kỳ device nào chứa "test")
-            if (deviceId.toLowerCase().includes('test')) {
-                continue;
-            }
-            
-            const devicePath = path.join(uploadDir, deviceId);
-
-            // Get last image timestamp for this device
-            let lastUpdate = null;
-            let imageCount = 0;
-
-            try {
-                // Get all year directories
-                const yearDirs = await fs.readdir(devicePath, { withFileTypes: true });
-
-                for (const yearDir of yearDirs) {
-                    if (!yearDir.isDirectory()) continue;
-
-                    const yearPath = path.join(devicePath, yearDir.name);
-                    const monthDirs = await fs.readdir(yearPath, { withFileTypes: true });
-
-                    for (const monthDir of monthDirs) {
-                        if (!monthDir.isDirectory()) continue;
-
-                        const monthPath = path.join(yearPath, monthDir.name);
-                        const dayDirs = await fs.readdir(monthPath, { withFileTypes: true });
-
-                        for (const dayDir of dayDirs) {
-                            if (!dayDir.isDirectory()) continue;
-
-                            const dayPath = path.join(monthPath, dayDir.name);
-                            const files = await fs.readdir(dayPath);
-
-                            for (const file of files) {
-                                if (file.endsWith('.jpg') || file.endsWith('.jpeg')) {
-                                    imageCount++;
-                                    const filePath = path.join(dayPath, file);
-                                    const stats = await fs.stat(filePath);
-
-                                    if (!lastUpdate || stats.mtime > lastUpdate) {
-                                        lastUpdate = stats.mtime;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (err) {
-                console.warn(`Error reading device directory ${deviceId}:`, err);
-            }
-
-            // Determine device status based on last update
-            let status = 'offline';
-            if (lastUpdate) {
-                const timeDiff = Date.now() - new Date(lastUpdate).getTime();
-                if (timeDiff < 5 * 60 * 1000) { // 5 minutes
-                    status = 'online';
-                } else if (timeDiff < 30 * 60 * 1000) { // 30 minutes
-                    status = 'warning';
-                }
-            }
-
-            devices.push({
-                id: deviceId,
-                status,
-                lastUpdate,
-                imageCount,
-                autoEnabled: false, // Mock data - can be stored in config file
-                intervalSeconds: 30 // Mock data
-            });
-        }
-
-        return devices.sort((a, b) => a.id.localeCompare(b.id));
-    } catch (error) {
-        console.error('Error reading devices directory:', error);
-        return [];
-    }
-}
-
-// Delete device
 async function deleteDevice(req, res, next) {
     try {
-        const { id } = req.params;
-        const devicePath = path.join(cfg.uploadDir, id);
-
-        // Check if device directory exists
-        try {
-            await fs.access(devicePath);
-        } catch (err) {
-            return res.status(404).json({ ok: false, error: "Device not found" });
+        const device = deviceRegistry.getDevice(req.params.id);
+        if (!device) {
+            return res.status(404).json({ ok: false, error: "device_not_found" });
         }
-
-        // Delete device directory recursively
-        await fs.rm(devicePath, { recursive: true, force: true });
-
-        res.json({ ok: true, message: `Device ${id} deleted successfully` });
+        await deviceRegistry.deleteDevice(req.params.id);
+        res.json({ ok: true, message: `Device ${req.params.id} deleted` });
     } catch (e) {
         next(e);
     }
 }
 
-module.exports = { getDevices, capture, autoConfig, status, deleteDevice };
+// ── Events polling ──────────────────────────────────────────────
+
+async function getEvents(req, res, next) {
+    try {
+        const { since, deviceId, limit } = req.query;
+        const events = eventProcessor.getEvents({
+            since: since ? Number(since) : undefined,
+            deviceId: deviceId || undefined,
+            limit: limit ? parseInt(limit, 10) : 50,
+        });
+        res.json({ ok: true, events, count: events.length, serverTime: Date.now() });
+    } catch (e) {
+        next(e);
+    }
+}
+
+async function getLatestEvents(req, res, next) {
+    try {
+        const limit = req.query.limit ? parseInt(req.query.limit, 10) : 20;
+        const events = eventProcessor.getLatestEvents(limit);
+        res.json({ ok: true, events, count: events.length, serverTime: Date.now() });
+    } catch (e) {
+        next(e);
+    }
+}
+
+// ── MQTT connection info ────────────────────────────────────────
+
+async function getMqttStatus(req, res) {
+    res.json({
+        ok: true,
+        connected: mqtt.isConnected(),
+        enabled: process.env.MQTT_ENABLED === "true",
+    });
+}
+
+module.exports = {
+    getDevices,
+    getDeviceDetail,
+    getDeviceStatus,
+    capture,
+    requestStatus,
+    resetDevice,
+    restartCamera,
+    otaCheck,
+    otaUpdate,
+    autoConfig,
+    broadcastCapture,
+    deleteDevice,
+    getEvents,
+    getLatestEvents,
+    getMqttStatus,
+};

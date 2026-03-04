@@ -1,0 +1,43 @@
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.status-dot--online {
+    background-color: #52c41a;
+    box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.2);
+    animation: pulse-green 2s ease-in-out infinite;
+}
+
+.status-dot--offline {
+    background-color: #ff4d4f;
+}
+
+.status-dot--stale {
+    background-color: #faad14;
+    animation: pulse-yellow 2s ease-in-out infinite;
+}
+
+.status-dot--unknown {
+    background-color: #d9d9d9;
+}
+
+@keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(82, 196, 26, 0.4); }
+    50%      { box-shadow: 0 0 0 6px rgba(82, 196, 26, 0); }
+}
+
+@keyframes pulse-yellow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(250, 173, 20, 0.4); }
+    50%      { box-shadow: 0 0 0 6px rgba(250, 173, 20, 0); }
+}

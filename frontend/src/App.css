@@ -1,0 +1,19 @@
+.App {
+    text-align: center;
+}
+
+/* Sider is fixed at 220px or 80px collapsed */
+.ant-layout-content {
+    margin-left: 220px;
+    transition: margin-left 0.2s;
+}
+
+.ant-layout-sider-collapsed ~ .ant-layout .ant-layout-content {
+    margin-left: 80px;
+}
+
+@media (max-width: 768px) {
+    .ant-layout-content {
+        margin-left: 0;
+    }
+}
