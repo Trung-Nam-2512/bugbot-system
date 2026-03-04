@@ -35,7 +35,6 @@ services:
     ports:
       - "19092:19092" # Kafka API (external)
       - "18081:18081" # Schema Registry (external)
-      - "1440:8082" # HTTP Proxy → Nginx kafka.nguyentrungnam.com
       - "9644:9644" # Admin API
     volumes:
       - redpanda_data:/var/lib/redpanda/data
