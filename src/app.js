@@ -73,8 +73,11 @@ const generalLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => {
-        // Skip rate limiting for health checks
-        return req.path === '/api/health' || req.path === '/api/health/live' || req.path === '/api/health/ready';
+        // Skip rate limiting for health checks and SSE stream (long-lived connections)
+        return req.path === '/api/health'
+            || req.path === '/api/health/live'
+            || req.path === '/api/health/ready'
+            || req.path === '/api/iot/mqtt/events/stream';
     }
 });
 
