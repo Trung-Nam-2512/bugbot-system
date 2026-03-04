@@ -35,6 +35,9 @@ router.post("/devices/:id/ota/update", ctrl.otaUpdate);
 // ── Broadcast ───────────────────────────────────────────────────
 router.post("/broadcast/capture", ctrl.broadcastCapture);
 
+// ── Server-Sent Events (SSE) ─────────────────────────────────────
+router.get("/events/stream", ctrl.sseEventsStream);
+
 // ── Events polling ──────────────────────────────────────────────
 router.get(
     "/events",
@@ -45,8 +48,5 @@ router.get(
     ctrl.getEvents
 );
 router.get("/events/latest", ctrl.getLatestEvents);
-
-// ── Server-Sent Events (SSE) ─────────────────────────────────────
-router.get("/events/stream", ctrl.sseEventsStream);
 
 module.exports = router;
