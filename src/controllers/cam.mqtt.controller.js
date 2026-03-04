@@ -183,6 +183,29 @@ async function getLatestEvents(req, res, next) {
     }
 }
 
+// ── Server-Sent Events (SSE) Stream ─────────────────────────────
+
+async function sseEventsStream(req, res) {
+    // 1. Send SSE Headers
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+    });
+
+    // 2. Tùy chọn: Gửi ngay mảng data vừa khởi tạo để đồng bộ trạng thái ban đầu
+    const initialEvents = eventProcessor.getLatestEvents(20);
+    res.write(`data: ${JSON.stringify({ type: 'init', events: initialEvents })}\n\n`);
+
+    // 3. Đăng ký client với Processor
+    const removeClient = eventProcessor.addSSEClient(res);
+
+    // 4. Lắng nghe sự kiện ngắt kết nối (VD: User đóng tab)
+    req.on('close', () => {
+        removeClient();
+    });
+}
+
 // ── MQTT connection info ────────────────────────────────────────
 
 async function getMqttStatus(req, res) {
@@ -209,4 +232,5 @@ module.exports = {
     getEvents,
     getLatestEvents,
     getMqttStatus,
+    sseEventsStream,
 };

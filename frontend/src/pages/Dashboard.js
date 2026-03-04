@@ -7,7 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
 import useDevices from '../hooks/useDevices';
-import useEvents from '../hooks/useEvents';
+import useSSE from '../hooks/useSSE';
 import DeviceCard from '../components/DeviceCard';
 import EventFeed from '../components/EventFeed';
 import RecentImages from '../components/RecentImages';
@@ -18,8 +18,8 @@ const { Title } = Typography;
 
 const Dashboard = () => {
     const [autoRefresh, setAutoRefresh] = useState(true);
-    const { devices, counts, loading, refresh } = useDevices(autoRefresh);
-    const { events } = useEvents(null, autoRefresh);
+    const { devices, counts, loading, refresh } = useDevices(autoRefresh); // Tạm giữ cập nhật Device List 10s/lần
+    const { events, connected, error } = useSSE(); // NEW: Realtime SSE events (No polling)
     const navigate = useNavigate();
 
     const handleCapture = async (deviceId) => {
@@ -54,10 +54,10 @@ const Dashboard = () => {
                         Capture All
                     </Button>
                     <Switch
-                        checked={autoRefresh}
-                        onChange={setAutoRefresh}
-                        checkedChildren="Auto"
-                        unCheckedChildren="Manual"
+                        checked={connected}
+                        disabled
+                        checkedChildren="SSE On"
+                        unCheckedChildren="Offline"
                     />
                     <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}>
                         Lam moi

@@ -46,4 +46,7 @@ router.get(
 );
 router.get("/events/latest", ctrl.getLatestEvents);
 
+// ── Server-Sent Events (SSE) ─────────────────────────────────────
+router.get("/events/stream", ctrl.sseEventsStream);
+
 module.exports = router;

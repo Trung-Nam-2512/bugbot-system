@@ -11,6 +11,7 @@ class MqttEventProcessor {
         this.staleTimer = null;
         this.mqttService = null;
         this.deviceRegistry = null;
+        this.sseClients = new Set(); // NEW: Manage SSE clients
     }
 
     start(mqttService, deviceRegistry) {
@@ -131,6 +132,28 @@ class MqttEventProcessor {
         this.events.unshift(record);
         if (this.events.length > MAX_EVENTS) {
             this.events.length = MAX_EVENTS;
+        }
+
+        // Broadcast to all SSE clients
+        this._broadcastSSE(record);
+    }
+
+    // ── SSE Broadcaster ─────────────────────────────────────────────
+
+    addSSEClient(res) {
+        this.sseClients.add(res);
+        return () => this.sseClients.delete(res); // Return function to remove client
+    }
+
+    _broadcastSSE(data) {
+        if (this.sseClients.size === 0) return;
+        const msg = `data: ${JSON.stringify(data)}\n\n`;
+        for (const client of this.sseClients) {
+            try {
+                client.write(msg);
+            } catch (err) {
+                this.sseClients.delete(client);
+            }
         }
     }
 
