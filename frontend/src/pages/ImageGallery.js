@@ -33,7 +33,7 @@ const ImageGallery = () => {
         search: '',
         deviceId: '',
         dateRange: null,
-        sortBy: 'createdAt',
+        sortBy: 'timestamp',
         sortOrder: 'desc'
     });
     const [selectedImages, setSelectedImages] = useState([]);
@@ -246,8 +246,8 @@ const ImageGallery = () => {
                                 }}
                                 style={{ width: '100%' }}
                             >
-                                <Option value="createdAt-desc">Mới nhất</Option>
-                                <Option value="createdAt-asc">Cũ nhất</Option>
+                                <Option value="timestamp-desc">Mới nhất</Option>
+                                <Option value="timestamp-asc">Cũ nhất</Option>
                                 <Option value="filename-asc">Tên A-Z</Option>
                                 <Option value="filename-desc">Tên Z-A</Option>
                                 <Option value="size-desc">Kích thước lớn nhất</Option>
@@ -384,7 +384,7 @@ const ImageGallery = () => {
                                                         <Space>
                                                             <CalendarOutlined />
                                                             <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                {formatDate(image.createdAt)}
+                                                                {formatDate(image.timestamp)}
                                                             </Text>
                                                         </Space>
                                                     </Space>
