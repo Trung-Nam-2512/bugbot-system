@@ -182,19 +182,27 @@ exports.serveImage = async (req, res, next) => {
         }
 
         // Trích xuất objectKey từ image_url lưu trong DB
-        // image_url thường có dạng: http://minio:9000/iot-raw/raw/yyyy/mm/dd/device/file.jpg
+        // Có 3 dạng URL:
+        // 1. MinIO Console URL: http://domain/api/v1/buckets/iot-raw/objects/download?prefix=<base64>&...
+        // 2. Direct MinIO URL:  http://minio:9000/iot-raw/raw/yyyy/mm/dd/device/file.jpg
+        // 3. Path thuần:        raw/yyyy/mm/dd/device/file.jpg
         let objectKey = image.url || '';
         try {
             const urlObj = new URL(objectKey);
-            const parts = urlObj.pathname.split('/').filter(Boolean);
-            // Bỏ tên bucket (phần tử đầu), lấy phần còn lại là objectKey
-            if (parts.length > 1) {
-                objectKey = parts.slice(1).join('/');
+            const searchParams = new URLSearchParams(urlObj.search);
+            const prefix = searchParams.get('prefix');
+
+            if (prefix && urlObj.pathname.includes('/api/v1/buckets/')) {
+                // Dạng MinIO Console URL → decode base64 prefix
+                objectKey = Buffer.from(prefix, 'base64').toString('utf8');
+                logger.debug({ imageId: id, prefix, objectKey }, 'Decoded MinIO Console URL prefix');
             } else {
-                objectKey = parts.join('/');
+                // Dạng direct MinIO URL → bỏ tên bucket ở đầu path
+                const parts = urlObj.pathname.split('/').filter(Boolean);
+                objectKey = parts.length > 1 ? parts.slice(1).join('/') : parts.join('/');
             }
         } catch {
-            // Nếu không phải URL đầy đủ, giả sử đã là objectKey
+            // Không phải URL đầy đủ → bỏ bucket prefix nếu có
             objectKey = objectKey.replace(/^\/?iot-raw\//, '');
         }
 
